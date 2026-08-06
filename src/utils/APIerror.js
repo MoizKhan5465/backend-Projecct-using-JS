@@ -3,13 +3,13 @@ class APIerror extends Error {
     statusCode,
     message = "something went wrong",
     errors = [],
-    stack = " ",
+    stack = "",
   ) {
     super(message);
     this.statusCode = statusCode;
     this.message = message;
     this.errors = errors;
-    this.data = NULL;
+    this.data = null;
       this.success = false;
       if (stack) {
           this.stack = stack;
