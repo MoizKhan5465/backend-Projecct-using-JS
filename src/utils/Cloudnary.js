@@ -12,7 +12,7 @@ const uploadonclodinary = async (localfilepath) => {
     if (!localfilepath) {
       throw new Error("File path is required");
     }
-    response = await cloudinary.uploader.upload(localfilepath, {
+    const response = await cloudinary.uploader.upload(localfilepath, {
       resource_type: "auto",
     });
     console.log("File uploaded successfully");
