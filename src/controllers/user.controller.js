@@ -54,72 +54,154 @@ const registerUser = asyncHandler(async (req, res) => {
     .json(new APIresponse(201, createduser, "User created successfully"));
 });
 
-const generateaccessandrefreshtoken = (userID) => {
-  try {
-    const user = await user.findById(userID);
-    
-    if (!user) {
-      throw new APIerror(404, "User not found");
-    }
-    const accessToken=user.generateaccesstoken();
-    const refreshToken = user.generaterefreshtoken();
-    
-    user.refreshToken = refreshToken;
-    await user.save({validateBeforeSave:false});
+const generateAccessAndRefreshToken = async (userID) => {
+  const usr = await user.findById(userID);
+  if (!usr) throw new APIerror(404, "User not found");
 
-    return { accessToken, refreshToken };
+  const accessToken = usr.generateaccesstoken();
+  const refreshToken = usr.generaterefreshtoken();
 
-  } catch (error) {
-    throw new APIerror(500, "Failed to generate tokens");
-  }
+  usr.refreshToken = refreshToken;
+  await usr.save({ validateBeforeSave: false });
+
+  return { accessToken, refreshToken };
 };
-const loginuser = asyncHandler(async (req, res) => {
+
+const loginUser = asyncHandler(async (req, res) => {
   const { email, username, password } = req.body;
   if (!email && !username) {
     throw new APIerror(400, "Please provide email or username");
   }
 
-  const UserAvaibleOrNot = await user.findOne({
-    $or: [{ email }, { username }],
-  });
-
-  if (!UserAvaibleOrNot) {
+  const foundUser = await user.findOne({ $or: [{ email }, { username }] });
+  if (!foundUser)
     throw new APIerror(404, "User with these credentials not found");
-  }
-  const isPasswordValid = await UserAvaibleOrNot.ispasswordcorrect(password);
-  if (!isPasswordValid) {
-    throw new APIerror(401, "Invalid password");
-  }
 
-  const { accessToken, refreshtoken } = await generateaccessandrefreshtoken(UserAvaibleOrNot._id)
-  
-  const loginsuser=await user.findByID(UserAvaibleOrNot._id).select("-password -refreshToken");
+  const isPasswordValid = await foundUser.ispasswordcorrect(password);
+  if (!isPasswordValid) throw new APIerror(401, "Invalid password");
 
-  const options = {
+  const { accessToken, refreshToken } = await generateAccessAndRefreshToken(
+    foundUser._id,
+  );
+
+  const userForResponse = await user
+    .findById(foundUser._id)
+    .select("-password -refreshToken");
+
+  const isProd = process.env.NODE_ENV === "production";
+  const cookieOptions = {
     httpOnly: true,
-    secure:true
-  }
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
+  };
 
-  return res.status(200).cookie("refreshToken", refreshtoken, options).cookie("accesstoken",accessToken,options).json(new APIresponse(200, { user:loginuser,accessToken,refreshtoken }, "User logged in successfully"))
+  return res
+    .status(200)
+    .cookie("refreshToken", refreshToken, cookieOptions)
+    .cookie("accesstoken", accessToken, cookieOptions)
+    .json(
+      new APIresponse(
+        200,
+        { user: userForResponse, accessToken, refreshToken },
+        "User logged in successfully",
+      ),
+    );
 });
 
-const logout = asyncHandler(async (req, res) => { 
-  await User.findByIdAndUpdate(req.user._id, {
-    $set: {
-    refreshToken: null
-    }
-  }, { new: true })
-  
+const logout = asyncHandler(async (req, res) => {
+  await user.findByIdAndUpdate(
+    req.user._id,
+    { $set: { refreshToken: null } },
+    { new: true },
+  );
 
-   const options = {
+  const isProd = process.env.NODE_ENV === "production";
+  const cookieOptions = {
     httpOnly: true,
-    secure:true
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
+  };
+
+  return res
+    .status(200)
+    .clearCookie("accesstoken", cookieOptions)
+    .clearCookie("refreshToken", cookieOptions)
+    .json(new APIresponse(200, null, "User logged out successfully"));
+});
+
+const refreshToken = asyncHandler(async (req, res) => {
+  // Get refresh token from cookies or Authorization header
+  const incomingrefreshToken =
+    req.cookies?.refreshToken ||
+    req.header("Authorization")?.replace("Bearer ", "");
+
+  if (!incomingrefreshToken) {
+    throw new APIerror(401, "Refresh token is missing");
   }
 
-  return res.status(200).clearCookie("accessToken",options).clearCookie("refreshToken",options).json(new APIresponse(200, null, "User logged out successfully"))
-  
+  try {
+    // Verify the refresh token
+    const decodedRefreshToken = jwt.verify(
+      incomingrefreshToken,
+      process.env.REFRESH_TOKEN_SECRET,
+    );
 
-})
+    // Find user by ID from the decoded token
+    const foundUser = await user.findById(decodedRefreshToken._id);
 
-export { loginuser, logout, registerUser };
+    if (!foundUser) {
+      throw new APIerror(401, "User not found");
+    }
 
+    // Check if the refresh token matches the one stored in database
+    if (incomingrefreshToken !== foundUser.refreshToken) {
+      throw new APIerror(401, "Invalid refresh token. Please log in again.");
+    }
+
+    // Generate new tokens
+    const { accessToken, refreshToken: newRefreshToken } =
+      await generateAccessAndRefreshToken(foundUser._id);
+
+    const options = {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict", // Added for better security
+    };
+
+    // Get user data without sensitive info
+    const userForResponse = await user
+      .findById(foundUser._id)
+      .select("-password -refreshToken");
+
+    return res
+      .status(200)
+      .cookie("refreshToken", newRefreshToken, options)
+      .cookie("accesstoken", accessToken, options)
+      .json(
+        new APIresponse(
+          200,
+          {
+            user: userForResponse,
+            accessToken,
+            refreshToken: newRefreshToken,
+          },
+          "Access token refreshed successfully",
+        ),
+      );
+  } catch (error) {
+    if (
+      error.name === "JsonWebTokenError" ||
+      error.name === "TokenExpiredError"
+    ) {
+      throw new APIerror(
+        401,
+        "Invalid or expired refresh token. Please log in again.",
+      );
+    }
+    throw new APIerror(500, error.message || "Internal server error");
+  }
+});
+
+export { loginUser, logout, refreshToken, registerUser };

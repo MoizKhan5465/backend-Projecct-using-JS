@@ -4,6 +4,8 @@ import { upload } from "../middlewares/multer.js";
 import { loginUser } from "../controllers/user.controller.js";
 import { verifyJWT } from "../middlewares/auth.middileware.js";
 
+import { logout } from "../controllers/user.controller.js";
+
 const router = Router();
 router.route("/register").post(
   upload.fields([
@@ -19,7 +21,7 @@ router.route("/register").post(
   registerUser,
 );
 
-router.router("/login").post(loginUser);
+router.route("/login").post(loginUser);
 
 
 router.route("/logout").post(verifyJWT, logout);
