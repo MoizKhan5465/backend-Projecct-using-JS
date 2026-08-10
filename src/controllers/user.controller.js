@@ -54,4 +54,72 @@ const registerUser = asyncHandler(async (req, res) => {
     .json(new APIresponse(201, createduser, "User created successfully"));
 });
 
-export { registerUser };
+const generateaccessandrefreshtoken = (userID) => {
+  try {
+    const user = await user.findById(userID);
+    
+    if (!user) {
+      throw new APIerror(404, "User not found");
+    }
+    const accessToken=user.generateaccesstoken();
+    const refreshToken = user.generaterefreshtoken();
+    
+    user.refreshToken = refreshToken;
+    await user.save({validateBeforeSave:false});
+
+    return { accessToken, refreshToken };
+
+  } catch (error) {
+    throw new APIerror(500, "Failed to generate tokens");
+  }
+};
+const loginuser = asyncHandler(async (req, res) => {
+  const { email, username, password } = req.body;
+  if (!email && !username) {
+    throw new APIerror(400, "Please provide email or username");
+  }
+
+  const UserAvaibleOrNot = await user.findOne({
+    $or: [{ email }, { username }],
+  });
+
+  if (!UserAvaibleOrNot) {
+    throw new APIerror(404, "User with these credentials not found");
+  }
+  const isPasswordValid = await UserAvaibleOrNot.ispasswordcorrect(password);
+  if (!isPasswordValid) {
+    throw new APIerror(401, "Invalid password");
+  }
+
+  const { accessToken, refreshtoken } = await generateaccessandrefreshtoken(UserAvaibleOrNot._id)
+  
+  const loginsuser=await user.findByID(UserAvaibleOrNot._id).select("-password -refreshToken");
+
+  const options = {
+    httpOnly: true,
+    secure:true
+  }
+
+  return res.status(200).cookie("refreshToken", refreshtoken, options).cookie("accesstoken",accessToken,options).json(new APIresponse(200, { user:loginuser,accessToken,refreshtoken }, "User logged in successfully"))
+});
+
+const logout = asyncHandler(async (req, res) => { 
+  await User.findByIdAndUpdate(req.user._id, {
+    $set: {
+    refreshToken: null
+    }
+  }, { new: true })
+  
+
+   const options = {
+    httpOnly: true,
+    secure:true
+  }
+
+  return res.status(200).clearCookie("accessToken",options).clearCookie("refreshToken",options).json(new APIresponse(200, null, "User logged out successfully"))
+  
+
+})
+
+export { loginuser, logout, registerUser };
+

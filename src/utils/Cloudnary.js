@@ -17,6 +17,7 @@ const uploadonclodinary = async (localfilepath) => {
     });
     console.log("File uploaded successfully");
     console.log(response.url);
+    fs.unlinkSync(localfilepath);
     return response;
   } catch (error) {
     fs.unlinkSync(localfilepath);
@@ -24,5 +25,7 @@ const uploadonclodinary = async (localfilepath) => {
     throw error;
   }
 };
+
+
 
 export { uploadonclodinary };
