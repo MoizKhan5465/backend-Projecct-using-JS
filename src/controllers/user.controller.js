@@ -285,7 +285,7 @@ const updateUserAvtar = asyncHandler(async (req, res) => {
 });
 const updateUserCoverimage = asyncHandler(async (req, res) => {
   const currentcoverimage = req.file?.path;
-  console.log("Current cover image path:", currentcoverimage); 
+  console.log("Current cover image path:", currentcoverimage);
   console.log("\n Request file object:", req.file);
   console.log("\n Request body:", req.body);
   if (!currentcoverimage) {
@@ -316,9 +316,68 @@ const updateUserCoverimage = asyncHandler(async (req, res) => {
     );
 });
 
+const getUserChannelProfile = asyncHandler(async (req, res) => {
+  const { username } = req.params;
+
+  if (!username?.trim()) {
+    throw new APIerror(400, "Please provide username");
+  }
+
+  const channel = await user.aggregate([
+    {
+      $match: { username: username.toLowerCase() },
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "channel",
+        as: "subscribers",
+      },
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriper", // keep your schema spelling as-is
+        as: "subscriptions",
+      },
+    },
+    {
+      $addFields: {
+        subscriberCount: { $size: "$subscribers" },
+        subscriptionCount: { $size: "$subscriptions" },
+        isSubscribed: {
+          $cond: {
+            if: { $in: [req.user?._id, "$subscribers.subscriper"] },
+            then: true,
+            else: false,
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        password: 0,
+        refreshToken: 0,
+        accessToken: 0,
+      },
+    },
+  ]);
+
+  if (!channel?.length) {
+    throw new APIerror(404, "Channel not found");
+  }
+
+  return res
+    .status(200)
+    .json(new APIresponse(200, channel[0], "Channel profile fetched"));
+});
+
 export {
   changecurrentuserpassword,
   getcurrentuser,
+  getUserChannelProfile,
   loginUser,
   logout,
   refreshToken,
